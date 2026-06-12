@@ -256,26 +256,45 @@ def forecast_all_products_parallel(df_clean: pd.DataFrame, forecast_days: int = 
                 
     return results
 
-def format_forecast_table(forecast_dict: dict[str, pd.DataFrame]) -> pd.DataFrame:
+def format_forecast_table(forecast_dict: dict[str, pd.DataFrame], forecast_unit: str = "Days") -> pd.DataFrame:
     """
-    Consolidates product forecasts into a wide format table (rows: products, columns: dates).
+    Consolidates product forecasts into a wide format table.
+    - If forecast_unit is "Days", columns are dates (e.g. YYYY-MM-DD).
+    - If forecast_unit is "Weeks", columns are grouped weekly (e.g. Week 1, Week 2).
     """
     rows = []
     for item_id, fc_df in forecast_dict.items():
         row = {'ITEMID': item_id}
-        for _, r in fc_df.iterrows():
-            date_str = r['ds'].strftime('%Y-%m-%d')
-            row[date_str] = r['yhat']
+        
+        if forecast_unit == "Days":
+            for _, r in fc_df.iterrows():
+                date_str = r['ds'].strftime('%Y-%m-%d')
+                row[date_str] = r['yhat']
+        else: # Weeks
+            fc_df_sorted = fc_df.sort_values(by='ds').reset_index(drop=True)
+            for i in range(len(fc_df_sorted) // 7):
+                week_num = i + 1
+                week_sum = fc_df_sorted.loc[i*7 : (i+1)*7 - 1, 'yhat'].sum()
+                row[f"Week {week_num}"] = week_sum
+                
         rows.append(row)
         
     df_res = pd.DataFrame(rows)
     if not df_res.empty:
-        # Reorder columns to place ITEMID first, and sort dates chronologically
-        date_cols = sorted([c for c in df_res.columns if c != 'ITEMID'])
-        df_res = df_res[['ITEMID'] + date_cols]
+        # Reorder columns to place ITEMID first
+        cols = [c for c in df_res.columns if c != 'ITEMID']
+        
+        if forecast_unit == "Days":
+            cols = sorted(cols)
+        else:
+            cols = sorted(cols, key=lambda x: int(x.split(' ')[1]))
+            
+        df_res = df_res[['ITEMID'] + cols]
+        
         # Sort rows by average forecasted quantity sold (descending)
-        df_res['Avg daily QTY'] = df_res[date_cols].mean(axis=1).round(1)
-        df_res = df_res.sort_values(by='Avg daily QTY', ascending=False)
+        avg_col_name = "Avg daily QTY" if forecast_unit == "Days" else "Avg weekly QTY"
+        df_res[avg_col_name] = df_res[cols].mean(axis=1).round(1)
+        df_res = df_res.sort_values(by=avg_col_name, ascending=False)
         
     return df_res
 

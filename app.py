@@ -69,11 +69,25 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.header("🎨 Highlighting Thresholds")
-st.sidebar.info("Highlight forecasted quantities sold per day using colors:")
+st.sidebar.header("⏱️ Forecast Configuration")
 
-high_thresh = st.sidebar.number_input("High Volume (Green) Threshold", min_value=1, value=50, step=5)
-med_thresh = st.sidebar.number_input("Medium Volume (Orange) Threshold", min_value=0, value=10, step=1)
+forecast_unit = st.sidebar.radio("Forecast Period Unit", ["Days", "Weeks"])
+
+if forecast_unit == "Days":
+    forecast_periods = st.sidebar.slider("Forecast Duration (Days)", min_value=1, max_value=10, value=10)
+    default_high = 50
+    default_med = 10
+else:
+    forecast_periods = st.sidebar.slider("Forecast Duration (Weeks)", min_value=1, max_value=5, value=4)
+    default_high = 350
+    default_med = 70
+
+st.sidebar.markdown("---")
+st.sidebar.header("🎨 Highlighting Thresholds")
+st.sidebar.info("Highlight forecasted quantities sold per day/week using colors:")
+
+high_thresh = st.sidebar.number_input("High Volume (Green) Threshold", min_value=1, value=default_high, step=5)
+med_thresh = st.sidebar.number_input("Medium Volume (Orange) Threshold", min_value=0, value=default_med, step=1)
 
 # Helper function to generate styled Excel for download
 def export_to_excel_styled(forecast_df, date_cols, med, high):
@@ -180,9 +194,10 @@ if uploaded_file is not None:
     
     # 3. Action panel
     st.subheader("🔮 Run Forecast")
-    st.markdown("Fit individual Prophet forecasting models for each product to predict sales over the next 10 days.")
+    st.markdown(f"Fit individual Prophet forecasting models for each product to predict sales over the next {forecast_periods} {forecast_unit.lower()}.")
     
-    if st.button("🚀 Generate 10-Day Product-Wise Forecast"):
+    button_label = f"🚀 Generate {forecast_periods}-{forecast_unit[:-1]} Product-Wise Forecast"
+    if st.button(button_label):
         progress_bar = st.progress(0)
         progress_text = st.empty()
         
@@ -191,10 +206,13 @@ if uploaded_file is not None:
             progress_bar.progress(completed / total)
             progress_text.text(f"Processed {completed} of {total} products...")
             
+        # Determine total forecast days
+        days_to_predict = forecast_periods if forecast_unit == "Days" else forecast_periods * 7
+            
         with st.spinner("Fitting Prophet models in parallel..."):
             forecast_dict = forecast_all_products_parallel(
                 df_cleaned, 
-                forecast_days=10, 
+                forecast_days=days_to_predict, 
                 progress_callback=progress_cb
             )
             
@@ -203,16 +221,21 @@ if uploaded_file is not None:
         
         # Save results in session state to prevent losing them on interactions
         st.session_state['forecast_dict'] = forecast_dict
-        st.session_state['forecast_table'] = format_forecast_table(forecast_dict)
+        st.session_state['forecast_table'] = format_forecast_table(forecast_dict, forecast_unit)
+        st.session_state['forecast_unit_used'] = forecast_unit
+        st.session_state['forecast_periods_used'] = forecast_periods
         st.success("Successfully completed forecasting for all products!")
 
     # 4. Display Forecast Table if generated
     if 'forecast_table' in st.session_state:
         st.markdown("---")
-        st.subheader("📊 Product-Wise Forecast Table")
+        unit_used = st.session_state.get('forecast_unit_used', 'Days')
+        periods_used = st.session_state.get('forecast_periods_used', 10)
+        st.subheader(f"📊 Product-Wise Forecast Table ({periods_used} {unit_used})")
         
         forecast_df = st.session_state['forecast_table']
-        date_cols = [c for c in forecast_df.columns if c not in ['ITEMID', 'Avg daily QTY']]
+        avg_col = "Avg daily QTY" if unit_used == "Days" else "Avg weekly QTY"
+        date_cols = [c for c in forecast_df.columns if c not in ['ITEMID', avg_col]]
         
         # Table Styling Logic
         def style_cells(val):
@@ -238,7 +261,7 @@ if uploaded_file is not None:
         st.download_button(
             label="📥 Download styled Excel Report",
             data=excel_data,
-            file_name=f"prophet_10day_product_forecast.xlsx",
+            file_name=f"prophet_{periods_used}{unit_used.lower()}_product_forecast.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
@@ -255,11 +278,16 @@ if uploaded_file is not None:
                 # Get historical series
                 df_series = prepare_product_series(df_cleaned, selected_product)
                 
+                # Get selected settings from session state or current config
+                unit_used = st.session_state.get('forecast_unit_used', forecast_unit)
+                periods_used = st.session_state.get('forecast_periods_used', forecast_periods)
+                days_to_predict = periods_used if unit_used == "Days" else periods_used * 7
+
                 # Fit and predict single product
-                model, forecast_future = forecast_single_product(df_cleaned, selected_product, forecast_days=10)
+                model, forecast_future = forecast_single_product(df_cleaned, selected_product, forecast_days=days_to_predict)
                 
                 # Retrieve full history + forecast to plot components
-                future_all = model.make_future_dataframe(periods=10, freq='D')
+                future_all = model.make_future_dataframe(periods=days_to_predict, freq='D')
                 forecast_full = model.predict(future_all)
                 
                 # Plot 1: History vs Forecast
@@ -272,7 +300,7 @@ if uploaded_file is not None:
                     
                     # Highlight forecast dates
                     forecast_dates = forecast_full[forecast_full['ds'] > df_series['ds'].max()]
-                    ax1.plot(forecast_dates['ds'], forecast_dates['yhat'], label="Forecast (10 Days)", color="#FF7F0E", linestyle="--", marker="o", linewidth=2)
+                    ax1.plot(forecast_dates['ds'], forecast_dates['yhat'], label=f"Forecast ({periods_used} {unit_used})", color="#FF7F0E", linestyle="--", marker="o", linewidth=2)
                     ax1.fill_between(
                         forecast_dates['ds'], 
                         forecast_dates['yhat_lower'].clip(lower=0), 
@@ -290,10 +318,24 @@ if uploaded_file is not None:
                     
                 with col_right:
                     st.write(f"### Forecast Numbers ({selected_product})")
-                    # Display values in a neat table
-                    forecast_future_disp = forecast_future.copy()
-                    forecast_future_disp['ds'] = forecast_future_disp['ds'].dt.strftime('%b %d, %Y')
-                    forecast_future_disp.columns = ['Date', 'Expected Sale QTY', 'Min QTY Bound', 'Max QTY Bound']
+                    # Display values in a neat table (group weekly if using Weeks)
+                    if unit_used == "Weeks":
+                        forecast_future_disp = forecast_future.copy().reset_index(drop=True)
+                        weekly_rows = []
+                        for i in range(len(forecast_future_disp) // 7):
+                            week_df = forecast_future_disp.loc[i*7 : (i+1)*7 - 1]
+                            week_row = {
+                                'Period': f"Week {i+1}",
+                                'Expected Sale QTY': week_df['yhat'].sum(),
+                                'Min QTY Bound': week_df['yhat_lower'].sum(),
+                                'Max QTY Bound': week_df['yhat_upper'].sum()
+                            }
+                            weekly_rows.append(week_row)
+                        forecast_future_disp = pd.DataFrame(weekly_rows)
+                    else:
+                        forecast_future_disp = forecast_future.copy()
+                        forecast_future_disp['ds'] = forecast_future_disp['ds'].dt.strftime('%b %d, %Y')
+                        forecast_future_disp.columns = ['Period', 'Expected Sale QTY', 'Min QTY Bound', 'Max QTY Bound']
                     st.table(forecast_future_disp)
                     
                 # Plot 2: Seasonality Components
