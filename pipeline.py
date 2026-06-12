@@ -46,10 +46,11 @@ def load_and_clean_data(file_path: str) -> pd.DataFrame:
     if df_cleaned.empty:
         raise ValueError("No positive sales found after cleaning. Check your data.")
 
-    # 6. Trim Oct 2024 to May 2026
+    # 6. Trim Oct 2024 to the maximum date in the file (dynamic baseline)
+    max_date = df_cleaned['INVOICEDATE'].max()
     df_trimmed = df_cleaned[
         (df_cleaned['INVOICEDATE'] >= '2024-10-01') & 
-        (df_cleaned['INVOICEDATE'] <= '2026-05-31')
+        (df_cleaned['INVOICEDATE'] <= max_date)
     ]
     if df_trimmed.empty:
         raise ValueError("No data found in the required period (Oct 2024 - May 2026).")
@@ -71,8 +72,10 @@ def aggregate_and_format(df: pd.DataFrame) -> pd.DataFrame:
     # Group by date, sum QTY
     df_daily = df.groupby('INVOICEDATE')['QTY'].sum().reset_index()
     
-    # Reindex to fill missing days in the range Oct 1 2024 to May 31 2026 with 0
-    all_dates = pd.date_range(start='2024-10-01', end='2026-05-31', freq='D')
+    # Reindex to fill missing days dynamically from the min date to max date in the data
+    start_date = df['INVOICEDATE'].min()
+    end_date = df['INVOICEDATE'].max()
+    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
     df_daily = df_daily.set_index('INVOICEDATE').reindex(all_dates, fill_value=0).reset_index()
     
     # Rename columns to ds and y
@@ -189,8 +192,10 @@ def prepare_product_series(df: pd.DataFrame, item_id: str) -> pd.DataFrame:
     df_item = df[df['ITEMID'] == item_id]
     df_daily = df_item.groupby('INVOICEDATE')['QTY'].sum().reset_index()
     
-    # Reindex to fill missing days in the range Oct 1 2024 to May 31 2026 with 0
-    all_dates = pd.date_range(start='2024-10-01', end='2026-05-31', freq='D')
+    # Reindex to fill missing days dynamically from the min date to max date in the data
+    start_date = df['INVOICEDATE'].min()
+    end_date = df['INVOICEDATE'].max()
+    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
     df_daily = df_daily.set_index('INVOICEDATE').reindex(all_dates, fill_value=0).reset_index()
     
     df_daily.columns = ['ds', 'y']
