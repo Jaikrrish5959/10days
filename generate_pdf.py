@@ -12,10 +12,15 @@ class ProjectReportPDF(FPDF):
         self.set_font('Helvetica', 'I', 10)
         self.cell(0, 5, 'Comprehensive Project Submission Report', 0, 1, 'C')
         
-        # Bottom rule line
+        # Display Live App URL
+        self.set_text_color(30, 58, 138)
+        self.set_font('Helvetica', 'B', 10)
+        self.cell(0, 5, 'Live Web App: 10daysprediction.streamlit.app', 0, 1, 'C')
+        
+        # Bottom rule line (adjusted down to y=33 to prevent text overlap)
         self.set_draw_color(209, 213, 219)
-        self.line(10, 28, 200, 28)
-        self.ln(12)
+        self.line(10, 33, 200, 33)
+        self.ln(10)
 
     def footer(self):
         # Position footer at 1.5 cm from bottom
