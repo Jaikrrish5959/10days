@@ -7,7 +7,10 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font
 
-# Import core functions from our pipeline
+# Import core functions from our pipeline (reloaded dynamically)
+import importlib
+import pipeline
+importlib.reload(pipeline)
 from pipeline import (
     load_and_clean_data,
     forecast_all_products_parallel,
