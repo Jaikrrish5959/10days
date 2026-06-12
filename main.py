@@ -3,6 +3,8 @@ import sys
 import argparse
 import matplotlib.pyplot as plt
 import pandas as pd
+
+# Import functions from pipeline.py
 from pipeline import (
     load_and_clean_data,
     aggregate_and_format,
@@ -13,6 +15,7 @@ from pipeline import (
 )
 
 def main():
+    # 1. CLI Setup: Define command-line arguments and defaults
     parser = argparse.ArgumentParser(description="Prophet Sales Forecasting Pipeline")
     parser.add_argument(
         "--file", 
@@ -28,7 +31,7 @@ def main():
     )
     args = parser.parse_args()
 
-    # Create output directory if it doesn't exist
+    # Create directory for saving files if it doesn't exist yet
     os.makedirs(args.output_dir, exist_ok=True)
     
     print("=" * 60)
@@ -76,6 +79,7 @@ def main():
     eval_plot_path = os.path.join(args.output_dir, "evaluation_plot.png")
     rmse, mape, wape = evaluate_model(model, test_df, plot_path=eval_plot_path)
     
+    # Print calculated metrics to console
     print("-" * 50)
     print(f"  Evaluation Metrics (Daily Sales):")
     print(f"  RMSE (Root Mean Squared Error): {rmse:.2f}")
@@ -89,7 +93,7 @@ def main():
     print(f"  Saved evaluation plot to: {eval_plot_path}")
 
     # Step 6: Refit & Forecast
-    # If MAPE/WAPE is acceptable (we will print a warning if WAPE > 25%, but proceed)
+    # Print warnings if forecast accuracy metrics are higher than preferred limits
     metric_val = wape if not pd.isna(wape) else (mape if not pd.isna(mape) else 0)
     if metric_val > 25.0:
         print(f"\n[WARNING] Error metric ({metric_val:.1f}%) is higher than the desired 20-25% threshold.")
@@ -97,20 +101,20 @@ def main():
     else:
         print(f"\nError metric is within acceptable range ({metric_val:.1f}% <= 25%).")
 
-    print("\n[Step 6] Refitting Prophet model on entire dataset (Oct 2024 - May 2026)...")
+    print("\n[Step 6] Refitting Prophet model on entire dataset (Oct 2024 - present)...")
     try:
         full_model, forecast_90 = refit_and_forecast(df_daily, forecast_days=90)
-        print("  Refit complete. Generated 90-day forecast (Jun 2026 - Aug 2026).")
+        print("  Refit complete. Generated 90-day forecast.")
     except Exception as e:
         print(f"\n[ERROR] Refitting/Forecasting failed: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Save output forecast
+    # Save output 90-day predictions to CSV file
     csv_out_path = os.path.join(args.output_dir, "prophet_90day_forecast.csv")
     forecast_90.to_csv(csv_out_path, index=False)
     print(f"  Saved 90-day forecast to CSV: {csv_out_path}")
     
-    # Save components plot (Trend, Holidays, Seasonalities)
+    # Save components plot (isolated Trend, Holidays, and seasonality subplots)
     components_plot_path = os.path.join(args.output_dir, "components_plot.png")
     
     # Retrieve full forecast to generate components plot
@@ -122,9 +126,9 @@ def main():
     plt.close(fig)
     print(f"  Saved model seasonality/holiday components plot to: {components_plot_path}")
 
-    # Print summary of the forecast
+    # Print summary averages of predictions per month
     print("\n" + "=" * 50)
-    print("  90-DAY FORECAST SUMMARY (Jun - Aug 2026)")
+    print("  90-DAY FORECAST SUMMARY")
     print("=" * 50)
     forecast_90_summary = forecast_90.copy()
     forecast_90_summary['Month'] = forecast_90_summary['ds'].dt.to_period('M')
